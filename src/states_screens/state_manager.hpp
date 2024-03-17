@@ -205,11 +205,16 @@ public:
     static void deallocate();
     static void clear();
     void clearMenuStack() { m_menu_stack.clear(); }
+
+    virtual void setAutoMode(bool auto_mode) OVERRIDE { m_auto_mode = auto_mode; }
+    virtual bool getAutoMode() const OVERRIDE { return m_auto_mode; }
 private:
     /**
      * A list of all currently playing players.
      */
     PtrVector<ActivePlayer, HOLD> m_active_players;
+
+    std::atomic<bool> m_auto_mode{false};
 };
 
 #endif

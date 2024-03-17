@@ -797,7 +797,7 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
         oss << "renderPlayerView() for kart " << i;
 
         PROFILER_PUSH_CPU_MARKER(oss.str().c_str(), 0x00, 0x00, (i+1)*60);
-        rg->renderPlayerView(camera, dt);
+        // rg->renderPlayerView(camera, dt);
 
         PROFILER_POP_CPU_MARKER();
     }  // for i<getNumKarts

@@ -24,6 +24,7 @@
 #endif
 #include "audio/music_manager.hpp"
 #include "audio/sfx_manager.hpp"
+#include "config/hardware_stats.hpp"
 #include "config/player_manager.hpp"
 #include "config/user_config.hpp"
 #include "graphics/central_settings.hpp"
@@ -35,6 +36,8 @@
 #include "guiengine/modaldialog.hpp"
 #include "guiengine/screen_keyboard.hpp"
 #include "input/input_manager.hpp"
+#include "karts/abstract_kart.hpp"
+#include "karts/controller/controller.hpp"
 #include "modes/world.hpp"
 #include "modes/profile_world.hpp"
 #include "network/network_config.hpp"
@@ -57,11 +60,18 @@
 #include "utils/string_utils.hpp"
 #include "utils/time.hpp"
 #include "utils/translation.hpp"
+#include "io/file_manager.hpp"
 #include "io/rich_presence.hpp"
 
+#include <hiredis/adapters/libevent.h>
+#include <hiredis/async.h>
+#include <hiredis/hiredis.h>
+#include <nlohmann/json.hpp>
 #include <thread>
 
+#include <IFileSystem.h>
 #include <IrrlichtDevice.h>
+#include <IWriteFile.h>
 
 #ifndef WIN32
 #include <unistd.h>
@@ -82,6 +92,236 @@ extern "C" {
 #undef s32
 }
 #endif
+
+namespace {
+
+static const std::string REDIS_HOST = "127.0.0.1";
+static const int REDIS_PORT = 6379;
+
+static const int CAMERA_FREQUENCY = 10;
+static const long CAMERA_FRAME_BUFFER_SIZE = 1024 * 1024;  // 1MB
+static const std::string CAMERA_TOPIC = "/bang/camera";
+
+static const int CHASSIS_FREQUENCY = 10;
+static const std::string CHASSIS_TOPIC = "/bang/chassis";
+
+static const int CONTROL_FREQUENCY = 10;
+static const std::string CONTROL_TOPIC = "/bang/control";
+
+inline AbstractKart* GetADKart() {
+    return World::getWorld() ? World::getWorld()->getPlayerKart(0) : nullptr;
+}
+
+inline bool IsAutoMode() {
+    return StateManager::get() && StateManager::get()->getAutoMode();
+}
+
+// Usage 1:
+//   my_thread_obj obj;
+//   obj.start();  // thread starts, and calls run_once periodically.
+//   obj.stop();
+// Usage 2:
+//   my_thread_obj obj;
+//   obj.try_run_once();  // fake thread runs inside another thread, only calls run_once if periodically.
+class RateLimitedThread {
+public:
+    RateLimitedThread(const int frequency)
+        : m_cycle(1.0f / frequency)
+        , m_last_frame(std::chrono::steady_clock::now()) {}
+
+    virtual void run_once() = 0;
+
+    void run() {
+        while (!m_abort) {
+            try_run_once();
+            const auto frame_remain = m_cycle - (std::chrono::steady_clock::now() - m_last_frame);
+            if (frame_remain > std::chrono::duration<float>(0)) {
+                std::this_thread::sleep_for(frame_remain);
+            } else {
+                std::cerr << "Slow frame!" << std::endl;
+            }
+        }
+    }
+
+    void try_run_once() {
+        const auto now = std::chrono::steady_clock::now();
+        if (now - m_last_frame >= m_cycle) {
+            m_last_frame = now;
+            run_once();
+        }
+    }
+
+    virtual void start() {
+        m_abort = false;
+        m_thread = std::thread(&RateLimitedThread::run, this);
+    }
+
+    virtual void stop() {
+        m_abort = true;
+        m_thread.join();
+        if (m_redis_context != nullptr) {
+            redisFree(m_redis_context);
+            m_redis_context = nullptr;
+        }
+    }
+
+protected:
+    // Useful utils.
+    void publish(const std::string& topic, const std::string& data) {
+        const std::string command = "PUBLISH " + topic + " %s";
+        auto* reply = (redisReply*)redisCommand(redis_context(), command.c_str(), data.c_str());
+        if (reply) {
+            freeReplyObject(reply);
+        }
+    }
+
+    void publish(const std::string& topic, const char* data, const size_t size) {
+        if (size == 0) {
+            return;
+        }
+        const std::string command = "PUBLISH " + topic + " %b";
+        auto* reply = (redisReply*)redisCommand(redis_context(), command.c_str(), data, size);
+        if (reply) {
+            freeReplyObject(reply);
+        }
+    }
+
+private:
+    std::atomic<bool> m_abort{false};
+    std::thread m_thread;
+    std::chrono::duration<float> m_cycle;
+    redisContext* m_redis_context{nullptr};
+    std::chrono::time_point<std::chrono::steady_clock> m_last_frame;
+
+    redisContext* redis_context() {
+        if (m_redis_context == nullptr) {
+            m_redis_context = redisConnect(REDIS_HOST.c_str(), REDIS_PORT);
+        }
+        return m_redis_context;
+    }
+};
+
+class CameraPublisher : public RateLimitedThread {
+public:
+    CameraPublisher() : RateLimitedThread(CAMERA_FREQUENCY) {}
+
+    void run_once() override {
+        auto* video_driver = irr_driver->getVideoDriver();
+        if (video_driver == nullptr) {
+            return;
+        }
+        auto* image = video_driver->createScreenShot();
+        if (image) {
+            publish_image_to_redis(image);
+            image->drop();
+        }
+    }
+
+private:
+    void publish_image_to_redis(irr::video::IImage* image) {
+        static char buffer[CAMERA_FRAME_BUFFER_SIZE];
+        auto* file = file_manager->getFileSystem()->createMemoryWriteFile(
+            buffer, CAMERA_FRAME_BUFFER_SIZE, "/tmp/nothing.jpg", false);
+        if (irr_driver->getVideoDriver()->writeImageToFile(image, file)) {
+            publish(CAMERA_TOPIC, buffer, file->getPos());
+        }
+        file->drop();
+    }
+};
+
+class ChassisPublisher : public RateLimitedThread {
+public:
+    ChassisPublisher() : RateLimitedThread(1) {}
+
+    void run_once() override {
+        AbstractKart* kart = GetADKart();
+        if (kart == nullptr) {
+            return;
+        }
+
+        const auto& position = kart->getFrontXYZ();
+        const auto heading = kart->getHeading();
+        const auto& speed = kart->getVelocity();
+
+        // TODO(xiaoxq): Remove.
+        std::cout << "BANG POSITION " << position.getX() << " " << position.getY() << " " << position.getZ()
+            << std::endl;
+
+        nlohmann::json chassis = {
+            {"position", {
+                {"x", position.getX()},
+                {"y", position.getY()},
+                {"z", position.getZ()}
+            }},
+            // North: 0
+            // East: pi/2
+            // South: -pi or pi
+            // West: -pi/2
+            {"heading", heading},
+            {"speed", {
+                {"x", speed.getX()},
+                {"y", speed.getY()},
+                {"z", speed.getZ()}
+            }}
+        };
+        publish(CHASSIS_TOPIC, chassis.dump());
+    }
+};
+
+class ControllReceiver {
+public:
+    static void start() {
+        auto* redis_context = redisAsyncConnect(REDIS_HOST.c_str(), REDIS_PORT);
+        if (redis_context == nullptr || redis_context->err) {
+            if (redis_context) {
+                std::cerr << "Error: " << redis_context->errstr << std::endl;
+                redisAsyncFree(redis_context);
+            } else {
+                std::cerr << "Can't allocate redis context" << std::endl;
+            }
+            return;
+        }
+        struct event_base* event_base = event_base_new();
+        redisLibeventAttach(redis_context, event_base);
+        const std::string cmd = "SUBSCRIBE " + CONTROL_TOPIC;
+        redisAsyncCommand(redis_context, subCallback, (char*)"sub", cmd.c_str());
+        event_base_dispatch(event_base);
+    }
+private:
+    static void subCallback(redisAsyncContext *c, void *r, void *privdata) {
+        auto* kart = GetADKart();
+        if (!IsAutoMode() || kart == nullptr || kart->getController() == nullptr) {
+            return;
+        }
+        redisReply *reply = (redisReply*)r;
+        if (reply == nullptr || reply->type != REDIS_REPLY_STRING || reply->len == 0) {
+            return;
+        }
+
+        // control = {steer: [-32768, 32768], pedal: [-32768, 32768]}
+        const nlohmann::json control = nlohmann::json::parse(reply->str);
+        const int steer = control["steer"];
+        const int pedal = control["pedal"];
+        Controller* controller = kart->getController();
+        if (steer < 0) {
+            controller->action(PlayerAction::PA_STEER_LEFT, -steer);
+            // TODO: Do we need this?
+            // controller->action(PlayerAction::PA_STEER_RIGHT, 0);
+        } else {
+            controller->action(PlayerAction::PA_STEER_RIGHT, steer);
+            // controller->action(PlayerAction::PA_STEER_LEFT, 0);
+        }
+        if (pedal < 0) {
+            controller->action(PlayerAction::PA_BRAKE, -pedal);
+            // controller->action(PlayerAction::PA_ACCEL, 0);
+        } else {
+            controller->action(PlayerAction::PA_ACCEL, pedal);
+            // controller->action(PlayerAction::PA_BRAKE, 0);
+        }
+    }
+};
+
+}  // namespace
 
 MainLoop* main_loop = 0;
 

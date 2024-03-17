@@ -185,6 +185,10 @@ namespace GUIEngine
         { 
             return (unsigned int)m_menu_stack.size();
         }
+
+        // Setter and getter for auto_mode.
+        virtual void setAutoMode(bool auto_mode) {}
+        virtual bool getAutoMode() const { return false; }
     };   // Class AbstractStateManager
 
 }   // GUIEngine

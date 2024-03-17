@@ -672,6 +672,8 @@ target_link_libraries(supertuxkart
     bulletdynamics
     bulletcollision
     bulletmath
+    event
+    hiredis
     ${ENET_LIBRARIES}
     stkirrlicht
     ${Angelscript_LIBRARIES}

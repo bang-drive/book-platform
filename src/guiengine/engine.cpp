@@ -1337,7 +1337,7 @@ namespace GUIEngine
         if (gamestate == GAME && !is_loading && !dialog_opened)
         {
             RaceGUIBase* rg = World::getWorld()->getRaceGUI();
-            if (rg != NULL) rg->renderGlobal(elapsed_time);
+            // if (rg != NULL) rg->renderGlobal(elapsed_time);
         }
 
         MessageQueue::update(elapsed_time);

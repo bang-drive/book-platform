@@ -1031,7 +1031,7 @@ namespace UserConfigParams
                         "Camera settings for player.") );
 
     PARAM_PREFIX FloatUserConfigParam         m_camera_distance
-            PARAM_DEFAULT(  FloatUserConfigParam(1.0, "distance",
+            PARAM_DEFAULT(  FloatUserConfigParam(0.4, "distance",
             &m_camera_normal,
             "Distance between kart and camera"));
 
@@ -1041,7 +1041,7 @@ namespace UserConfigParams
             "Angle between camera and plane of kart (pitch) when the camera is pointing forward"));
 
     PARAM_PREFIX BoolUserConfigParam         m_camera_forward_smoothing
-            PARAM_DEFAULT(  BoolUserConfigParam(true, "forward-smoothing",
+            PARAM_DEFAULT(  BoolUserConfigParam(false, "forward-smoothing",
             &m_camera_normal,
             "if true, use smoothing (forward-up-angle become relative to speed) when pointing forward"));
 

@@ -22,7 +22,7 @@ num_karts=${#ALLOWED_KARTS[@]}
     --numkarts=$((num_karts + 1)) \
     --ai=$(IFS=,; echo "${shuffled_karts[*]}") \
     --race-now \
-    --screensize=1920x1080 \
+    --screensize=1024x576 \
     --track="scotland"
 
 # TODO: --ai=a,b,c to only use Yolo-compatible karts

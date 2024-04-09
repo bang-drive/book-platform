@@ -231,7 +231,7 @@ private:
 
 class ChassisPublisher : public RateLimitedThread {
 public:
-    ChassisPublisher() : RateLimitedThread(1) {}
+    ChassisPublisher() : RateLimitedThread(CHASSIS_FREQUENCY) {}
 
     void run_once() override {
         AbstractKart* kart = GetADKart();
@@ -242,10 +242,6 @@ public:
         const auto& position = kart->getFrontXYZ();
         const auto heading = kart->getHeading();
         const auto& speed = kart->getVelocity();
-
-        // TODO(xiaoxq): Remove.
-        std::cout << "BANG POSITION " << position.getX() << " " << position.getY() << " " << position.getZ()
-            << std::endl;
 
         nlohmann::json chassis = {
             {"position", {
@@ -268,9 +264,11 @@ public:
     }
 };
 
-class ControllReceiver {
+class ControllReceiver : public RateLimitedThread {
 public:
-    static void start() {
+    ControllReceiver() : RateLimitedThread(CONTROL_FREQUENCY) {}
+
+    void start() override {
         auto* redis_context = redisAsyncConnect(REDIS_HOST.c_str(), REDIS_PORT);
         if (redis_context == nullptr || redis_context->err) {
             if (redis_context) {
@@ -281,13 +279,31 @@ public:
             }
             return;
         }
-        struct event_base* event_base = event_base_new();
-        redisLibeventAttach(redis_context, event_base);
+        m_event_base = event_base_new();
+        redisLibeventAttach(redis_context, m_event_base);
         const std::string cmd = "SUBSCRIBE " + CONTROL_TOPIC;
         redisAsyncCommand(redis_context, subCallback, (char*)"sub", cmd.c_str());
-        event_base_dispatch(event_base);
+
+        RateLimitedThread::start();
     }
+
+    void run_once() override {
+        if (m_event_base) {
+            event_base_loop(m_event_base, EVLOOP_NONBLOCK);
+        }
+    }
+
+    void stop() override {
+        RateLimitedThread::stop();
+        if (m_event_base) {
+            event_base_free(m_event_base);
+            m_event_base = nullptr;
+        }
+    }
+
 private:
+    struct event_base* m_event_base = nullptr;
+
     static void subCallback(redisAsyncContext *c, void *r, void *privdata) {
         auto* kart = GetADKart();
         if (!IsAutoMode() || kart == nullptr || kart->getController() == nullptr) {
@@ -644,6 +660,14 @@ void MainLoop::run()
     // happens in fixed timesteps
     double left_over_time = 0;
 
+    CameraPublisher camera_publisher;
+
+    ChassisPublisher chassis_publisher;
+    chassis_publisher.start();
+
+    ControllReceiver controll_receiver;
+    controll_receiver.start();
+
 #ifdef WIN32
     HANDLE parent = 0;
     if (m_parent_pid != 0)
@@ -659,6 +683,7 @@ void MainLoop::run()
 
     while (!m_abort)
     {
+        camera_publisher.try_run_once();
 #ifdef __SWITCH__
       // This feeds us messages (like when the Switch sleeps or requests an exit)
       m_abort = !appletMainLoop();
@@ -975,6 +1000,10 @@ void MainLoop::run()
         PROFILER_POP_CPU_MARKER();   // MainLoop pop
         PROFILER_SYNC_FRAME();
     }  // while !m_abort
+
+    controll_receiver.stop();
+    chassis_publisher.stop();
+    camera_publisher.stop();
 
 #ifdef WIN32
     if (parent != 0 && parent != INVALID_HANDLE_VALUE)

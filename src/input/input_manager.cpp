@@ -696,19 +696,16 @@ void InputManager::dispatchInput(Input::InputType type, int deviceID,
         }
     }
 
-    // Enter auto mode with RETURN key, or exit with operation actions.
-    if (StateManager::get()->getGameState() == GUIEngine::GAME) {
-        static const std::unordered_set<PlayerAction> DISENGAGE_ACTIONS = {
-            PA_ACCEL, PA_BRAKE, PA_STEER_LEFT, PA_STEER_RIGHT,
-        };
-
-        if (!StateManager::get()->getAutoMode() && button == IRR_KEY_RETURN) {
-            StateManager::get()->setAutoMode(true);
+    // Toggle auto mode with RETURN key.
+    if (StateManager::get()->getGameState() == GUIEngine::GAME && button == IRR_KEY_RETURN) {
+        const bool is_auto = StateManager::get()->getAutoMode();
+        if (!is_auto) {
             Log::info("InputManager", "Enter auto mode");
-        } else if (StateManager::get()->getAutoMode() && DISENGAGE_ACTIONS.count(action) > 0) {
-            StateManager::get()->setAutoMode(false);
+        } else {
             Log::info("InputManager", "Exit auto mode");
+            World::getWorld()->getPlayerKart(0)->getController()->reset();
         }
+        StateManager::get()->setAutoMode(!is_auto);
     }
 
     // do something with the key if it matches a binding

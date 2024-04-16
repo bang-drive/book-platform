@@ -21,7 +21,6 @@ num_karts=${#ALLOWED_KARTS[@]}
     --no-start-screen \
     --numkarts=$((num_karts + 1)) \
     --ai=$(IFS=,; echo "${shuffled_karts[*]}") \
-    --race-now \
     --screensize=1024x576 \
     --track="scotland"
 

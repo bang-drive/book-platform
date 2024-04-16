@@ -310,29 +310,28 @@ private:
             return;
         }
         redisReply *reply = (redisReply*)r;
-        if (reply == nullptr || reply->type != REDIS_REPLY_STRING || reply->len == 0) {
+        if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 3) {
+            return;
+        }
+        redisReply *message = reply->element[2];
+        if (message->type != REDIS_REPLY_STRING || message->len == 0) {
             return;
         }
 
         // control = {steer: [-32768, 32768], pedal: [-32768, 32768]}
-        const nlohmann::json control = nlohmann::json::parse(reply->str);
+        const nlohmann::json control = nlohmann::json::parse(message->str);
         const int steer = control["steer"];
         const int pedal = control["pedal"];
         Controller* controller = kart->getController();
         if (steer < 0) {
             controller->action(PlayerAction::PA_STEER_LEFT, -steer);
-            // TODO: Do we need this?
-            // controller->action(PlayerAction::PA_STEER_RIGHT, 0);
         } else {
             controller->action(PlayerAction::PA_STEER_RIGHT, steer);
-            // controller->action(PlayerAction::PA_STEER_LEFT, 0);
         }
         if (pedal < 0) {
             controller->action(PlayerAction::PA_BRAKE, -pedal);
-            // controller->action(PlayerAction::PA_ACCEL, 0);
         } else {
             controller->action(PlayerAction::PA_ACCEL, pedal);
-            // controller->action(PlayerAction::PA_BRAKE, 0);
         }
     }
 };

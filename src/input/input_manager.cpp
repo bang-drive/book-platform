@@ -696,16 +696,21 @@ void InputManager::dispatchInput(Input::InputType type, int deviceID,
         }
     }
 
-    // Toggle auto mode with RETURN key.
-    if (StateManager::get()->getGameState() == GUIEngine::GAME && button == IRR_KEY_RETURN) {
+    // Enter auto mode with RETURN key, and disengage with arrow keys.
+    if (StateManager::get()->getGameState() == GUIEngine::GAME && value != 0) {
         const bool is_auto = StateManager::get()->getAutoMode();
-        if (!is_auto) {
+        if (!is_auto && button == IRR_KEY_RETURN) {
             Log::info("InputManager", "Enter auto mode");
-        } else {
+            StateManager::get()->setAutoMode(true);
+            return;
+        }
+        if (is_auto &&
+               (button == IRR_KEY_UP || button == IRR_KEY_DOWN ||
+                button == IRR_KEY_LEFT || button == IRR_KEY_RIGHT)) {
             Log::info("InputManager", "Exit auto mode");
             World::getWorld()->getPlayerKart(0)->getController()->reset();
+            StateManager::get()->setAutoMode(false);
         }
-        StateManager::get()->setAutoMode(!is_auto);
     }
 
     // do something with the key if it matches a binding

@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <set>
 
@@ -82,6 +83,8 @@ private:
     std::map<int, std::unique_ptr<SDLController> > m_sdl_controller;
 #endif
 
+    std::unordered_set<int> m_active_keys;
+
 public:
            InputManager();
           ~InputManager();
@@ -128,6 +131,10 @@ public:
                          Input::AxisDirection direction, int value,
                          bool shift_mask = false);
     void   addJoystick();
+
+    inline bool isKeyActive(int key) const {
+        return m_active_keys.find(key) != m_active_keys.end();
+    }
 };
 
 extern InputManager *input_manager;

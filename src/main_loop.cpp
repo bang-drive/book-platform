@@ -336,6 +336,35 @@ private:
     }
 };
 
+class ControllPublisher : public RateLimitedThread {
+public:
+    ControllPublisher() : RateLimitedThread(CONTROL_FREQUENCY) {}
+
+    void run_once() override {
+        // In non-auto mode, publish user's control.
+        if (IsAutoMode()) {
+            return;
+        }
+        int steer = 0, pedal = 0;
+        if (input_manager->isKeyActive(irr::IRR_KEY_LEFT)) {
+            steer = -Input::MAX_VALUE;
+        } else if (input_manager->isKeyActive(irr::IRR_KEY_RIGHT)) {
+            steer = Input::MAX_VALUE;
+        }
+        if (input_manager->isKeyActive(irr::IRR_KEY_UP)) {
+            pedal = Input::MAX_VALUE;
+        } else if (input_manager->isKeyActive(irr::IRR_KEY_DOWN)) {
+            pedal = -Input::MAX_VALUE;
+        }
+        nlohmann::json control = {
+            {"source", "keyboard"},
+            {"steer", steer},
+            {"pedal", pedal}
+        };
+        publish(CONTROL_TOPIC, control.dump());
+    }
+};
+
 }  // namespace
 
 MainLoop* main_loop = 0;
@@ -666,6 +695,9 @@ void MainLoop::run()
 
     ControllReceiver controll_receiver;
     controll_receiver.start();
+
+    ControllPublisher controll_publisher;
+    controll_publisher.start();
 
 #ifdef WIN32
     HANDLE parent = 0;
@@ -1003,6 +1035,7 @@ void MainLoop::run()
     controll_receiver.stop();
     chassis_publisher.stop();
     camera_publisher.stop();
+    controll_publisher.stop();
 
 #ifdef WIN32
     if (parent != 0 && parent != INVALID_HANDLE_VALUE)

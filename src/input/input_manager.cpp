@@ -712,6 +712,11 @@ void InputManager::dispatchInput(Input::InputType type, int deviceID,
             StateManager::get()->setAutoMode(false);
         }
     }
+    if (value > 0) {
+        m_active_keys.insert(button);
+    } else {
+        m_active_keys.erase(button);
+    }
 
     // do something with the key if it matches a binding
     if (action_found)

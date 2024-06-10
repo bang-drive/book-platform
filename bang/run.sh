@@ -17,12 +17,9 @@ num_karts=${#ALLOWED_KARTS[@]}
 # scotland: Nessie's Pond
 # snowmountain: Northern Resort
 "${BIN}" \
-    --laps=5 \
+    --laps=10 \
     --no-start-screen \
     --numkarts=$((num_karts + 1)) \
     --ai=$(IFS=,; echo "${shuffled_karts[*]}") \
     --screensize=1024x576 \
     --track="scotland"
-
-# TODO: --ai=a,b,c to only use Yolo-compatible karts
-# TODO: Headless release mode with --no-graphics

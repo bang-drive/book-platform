@@ -325,13 +325,19 @@ private:
         Controller* controller = kart->getController();
         if (steer < 0) {
             controller->action(PlayerAction::PA_STEER_LEFT, -steer);
-        } else {
+        } else if (steer > 0) {
             controller->action(PlayerAction::PA_STEER_RIGHT, steer);
+        } else {
+            controller->action(PlayerAction::PA_STEER_LEFT, 0);
+            controller->action(PlayerAction::PA_STEER_RIGHT, 0);
         }
         if (pedal < 0) {
             controller->action(PlayerAction::PA_BRAKE, -pedal);
-        } else {
+        } else if (pedal > 0) {
             controller->action(PlayerAction::PA_ACCEL, pedal);
+        } else {
+            controller->action(PlayerAction::PA_ACCEL, 0);
+            controller->action(PlayerAction::PA_BRAKE, 0);
         }
     }
 };

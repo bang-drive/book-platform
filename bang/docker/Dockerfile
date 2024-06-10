@@ -45,5 +45,4 @@ RUN apt install -y \
     tree \
     vim
 
-# TODO(xiaoxq): Revisit this after ubuntu 24.04 is released.
 RUN deluser ubuntu

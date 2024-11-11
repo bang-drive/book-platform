@@ -19,6 +19,7 @@ num_karts=${#ALLOWED_KARTS[@]}
 "${BIN}" \
     --laps=10 \
     --no-start-screen \
+    --disable-item-collection \
     --numkarts=$((num_karts + 1)) \
     --ai=$(IFS=,; echo "${shuffled_karts[*]}") \
     --screensize=1024x576 \

@@ -478,6 +478,16 @@ void ItemManager::reset()
  */
 void ItemManager::update(int ticks)
 {
+    if(m_disable_item_collection)
+    {
+        for(AllItemTypes::iterator i =m_all_items.begin();
+                                   i!=m_all_items.end();  i++)
+        {
+            if(*i) deleteItem( *i );
+        }
+        m_all_items.clear();
+        return;
+    }
     // If switch time is over, switch all items back
     if(m_switch_ticks>=0)
     {
